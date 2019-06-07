@@ -11,7 +11,7 @@ set(ENABLE_BOXY ON)
 ...
 
 if(ENABLE_BOXY)
-    set_bfm_vmm(boxy_vmm TARGET bfvmm)
+    set_bfm_vmm(boxy_libvmi_extension TARGET bfvmm)
     list(APPEND EXTENSION
         ${CMAKE_CURRENT_LIST_DIR}/
     )
