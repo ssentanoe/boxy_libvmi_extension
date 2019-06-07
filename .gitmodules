@@ -1,0 +1,3 @@
+[submodule "boxy"]
+	path = boxy
+	url = https://github.com/Bareflank/boxy.git
