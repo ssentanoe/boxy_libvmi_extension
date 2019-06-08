@@ -10,9 +10,28 @@ using namespace boxy::intel_x64;
 class vmi_vcpu : public boxy::intel_x64::vcpu
 {
 public:
+
+	using handler_t = bool(gsl::not_null<bfvmm::intel_x64::vmcs *>);
+	using handler_delegate_t = delegate<handler_t>;
+
+	bool cpuid_handler(vcpu_t *vcpu)
+	{
+		if(rax() == 0x40001337 && is_dom0())
+		{
+			bfdebug_info(0, "cpuid_magic called");
+			set_rax(42);
+			set_rbx(42);
+			set_rcx(42);
+			set_rdx(42);
+			return advance();
+		}
+		return false;
+	}
+	
 	vmi_vcpu(vcpuid::type id, gsl::not_null<domain *> domain) : boxy::intel_x64::vcpu{id, domain}
 	{
-		bfdebug_info(0, "extension loaded");		
+		bfdebug_info(0, "extension loaded");
+		add_handler(intel_x64::vmcs::exit_reason::basic_exit_reason::cpuid, {&vmi_vcpu::cpuid_handler, this});
 	}
 };
 
