@@ -7,6 +7,18 @@
 
 using namespace boxy::intel_x64;
 
+typedef enum hstatus {
+	HSTATUS_SUCCESS = 0ull,
+	HSTATUS_FAILURE
+} hstatus_t;
+
+#define HCALL_INVALID		0xbf01337133713370
+#define HCALL_ACK		0xbf01337133713371
+#define HCALL_GET_REGISTERS	0xbf01337133713372
+#define HCALL_SET_REGISTERS	0xbf01337133713373
+#define HCALL_TRANSLATE_V2P	0xbf01337133713374
+#define HCALL_MAP_PA		0xbf01337133713375
+
 class vmi_vcpu : public boxy::intel_x64::vcpu
 {
 public:
@@ -30,7 +42,32 @@ public:
 
 	bool vmcall_handler_bare(vcpu_t *vcpu)
 	{
-		bfalert_nhex(0, "vmcall bare", vcpu->rax());
+		guard_exceptions([&] {
+			switch (vcpu->rax())
+			{
+				case HCALL_TRANSLATE_V2P:
+					bfdebug_info(0, "HCALL_TRANSLATE_V2P in");
+					//hcall_translate_v2p(vcpu);
+					break;
+				case HCALL_GET_REGISTERS:
+					bfdebug_info(0, "HCALL_GET_REGISTERS in");
+					//hcall_get_register_data(vcpu);
+					break;
+				case HCALL_MAP_PA:
+					bfdebug_info(0, "HCALL_MAP_PA in");
+					//hcall_memmap_ept(vcpu);
+					break;
+				default:
+					//bfalert_nhex(0, "vmcall", vcpu->rax());
+					break;
+			};
+			//vcpu->set_rax(HSTATUS_SUCCESS);
+		},
+		[&] {
+			bfdebug_info(0, "guard guard_exceptions in 2");
+			//vcpu->set_rax(HSTATUS_FAILURE);
+		});
+
 		return false;
 	}
 
