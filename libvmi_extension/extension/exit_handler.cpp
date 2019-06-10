@@ -23,15 +23,22 @@ public:
 			set_rbx(42);
 			set_rcx(42);
 			set_rdx(42);
-			return advance();
+			return vcpu->advance();
 		}
 		return false;
+	}
+
+	bool vmcall_handler(vcpu *vcpu)
+	{
+		bfalert_nhex(0, "vmcall", vcpu->rax());
+		return vcpu->advance();
 	}
 	
 	vmi_vcpu(vcpuid::type id, gsl::not_null<domain *> domain) : boxy::intel_x64::vcpu{id, domain}
 	{
 		bfdebug_info(0, "extension loaded");
 		add_handler(intel_x64::vmcs::exit_reason::basic_exit_reason::cpuid, {&vmi_vcpu::cpuid_handler, this});
+		add_vmcall_handler({&vmi_vcpu::vmcall_handler, this});
 	}
 };
 
