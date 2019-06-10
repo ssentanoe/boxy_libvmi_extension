@@ -28,6 +28,12 @@ public:
 		return false;
 	}
 
+	bool vmcall_handler_bare(vcpu_t *vcpu)
+	{
+		bfalert_nhex(0, "vmcall bare", vcpu->rax());
+		return false;
+	}
+
 	bool vmcall_handler(vcpu *vcpu)
 	{
 		bfalert_nhex(0, "vmcall", vcpu->rax());
@@ -38,7 +44,8 @@ public:
 	{
 		bfdebug_info(0, "extension loaded");
 		add_handler(intel_x64::vmcs::exit_reason::basic_exit_reason::cpuid, {&vmi_vcpu::cpuid_handler, this});
-		add_vmcall_handler({&vmi_vcpu::vmcall_handler, this});
+		add_handler(intel_x64::vmcs::exit_reason::basic_exit_reason::vmcall, {&vmi_vcpu::vmcall_handler_bare, this});
+		//add_vmcall_handler({&vmi_vcpu::vmcall_handler, this});
 	}
 };
 
