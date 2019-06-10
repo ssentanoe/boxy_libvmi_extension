@@ -16,7 +16,7 @@ public:
 
 	bool cpuid_handler(vcpu_t *vcpu)
 	{
-		if(rax() == 0x40001337 && is_dom0())
+		if(rax() == 0x40001337)
 		{
 			bfdebug_info(0, "cpuid_magic called");
 			set_rax(42);
