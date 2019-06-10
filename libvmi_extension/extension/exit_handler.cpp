@@ -42,19 +42,23 @@ public:
 
 	bool vmcall_handler_bare(vcpu_t *vcpu)
 	{
+		bool served = false;
 		guard_exceptions([&] {
 			switch (vcpu->rax())
 			{
 				case HCALL_TRANSLATE_V2P:
 					bfdebug_info(0, "HCALL_TRANSLATE_V2P in");
+					served = vcpu->advance();
 					//hcall_translate_v2p(vcpu);
 					break;
 				case HCALL_GET_REGISTERS:
 					bfdebug_info(0, "HCALL_GET_REGISTERS in");
+					served = vcpu->advance();
 					//hcall_get_register_data(vcpu);
 					break;
 				case HCALL_MAP_PA:
 					bfdebug_info(0, "HCALL_MAP_PA in");
+					served = vcpu->advance();
 					//hcall_memmap_ept(vcpu);
 					break;
 				default:
@@ -68,7 +72,7 @@ public:
 			//vcpu->set_rax(HSTATUS_FAILURE);
 		});
 
-		return false;
+		return served;
 	}
 
 	bool vmcall_handler(vcpu *vcpu)
