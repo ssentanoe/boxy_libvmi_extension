@@ -69,11 +69,11 @@ public:
 					//bfalert_nhex(0, "vmcall", vcpu->rax());
 					break;
 			};
-			vcpu->set_rax(1);
+			vcpu->set_rax(HSTATUS_SUCCESS);
 		},
 		[&] {
 			bfdebug_info(0, "guard guard_exceptions in 2");
-			vcpu->set_rax(0);
+			vcpu->set_rax(HSTATUS_FAILURE);
 		});
 
 		return served;
