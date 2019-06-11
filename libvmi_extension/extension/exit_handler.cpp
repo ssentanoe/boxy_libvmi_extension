@@ -13,12 +13,12 @@ typedef enum hstatus {
 	HSTATUS_FAILURE
 } hstatus_t;
 
-#define HCALL_INVALID		0xbf01337133713370
-#define HCALL_ACK		0xbf01337133713371
-#define HCALL_GET_REGISTERS	0xbf01337133713372
-#define HCALL_SET_REGISTERS	0xbf01337133713373
-#define HCALL_TRANSLATE_V2P	0xbf01337133713374
-#define HCALL_MAP_PA		0xbf01337133713375
+#define HCALL_INVALID		0xbf05000000000000
+#define HCALL_ACK		0xbf05000000000001
+#define HCALL_GET_REGISTERS	0xbf05000000000002
+#define HCALL_SET_REGISTERS	0xbf05000000000003
+#define HCALL_TRANSLATE_V2P	0xbf05000000000004
+#define HCALL_MAP_PA		0xbf05000000000005
 
 class vmi_vcpu : public boxy::intel_x64::vcpu
 {
@@ -41,55 +41,48 @@ public:
 		return false;
 	}
 
-	bool vmcall_handler_bare(vcpu_t *vcpu)
+	bool vmcall_handler(vcpu *vcpu)
 	{
+		if (bfopcode(vcpu->rax()) != __enum_vmi_op)
+			return false;
+
 		bool served = false;
 		guard_exceptions([&] {
 			switch (vcpu->rax())
 			{
 				case HCALL_TRANSLATE_V2P:
 					bfdebug_info(0, "HCALL_TRANSLATE_V2P in");
-					served = vcpu->advance();
+					served = true;
 					//hcall_translate_v2p(vcpu);
 					break;
 				case HCALL_GET_REGISTERS:
 					bfdebug_info(0, "HCALL_GET_REGISTERS in");
-					served = vcpu->advance();
+					served = true;
 					//hcall_get_register_data(vcpu);
 					break;
 				case HCALL_MAP_PA:
 					bfdebug_info(0, "HCALL_MAP_PA in");
-					served = vcpu->advance();
+					served = true;
 					//hcall_memmap_ept(vcpu);
 					break;
 				default:
 					//bfalert_nhex(0, "vmcall", vcpu->rax());
 					break;
 			};
-			//vcpu->set_rax(HSTATUS_SUCCESS);
+			vcpu->set_rax(1);
 		},
 		[&] {
 			bfdebug_info(0, "guard guard_exceptions in 2");
-			//vcpu->set_rax(HSTATUS_FAILURE);
+			vcpu->set_rax(0);
 		});
 
 		return served;
 	}
 
-	bool vmcall_handler(vcpu *vcpu)
-	{
-		if (bfopcode(vcpu->rax()) != __enum_vmi_op)
-			return false;
-		bfalert_nhex(0, "vmcall", vcpu->rax());
-		set_rax(1);
-		return true;
-	}
-	
 	vmi_vcpu(vcpuid::type id, gsl::not_null<domain *> domain) : boxy::intel_x64::vcpu{id, domain}
 	{
 		bfdebug_info(0, "extension loaded");
 		add_handler(intel_x64::vmcs::exit_reason::basic_exit_reason::cpuid, {&vmi_vcpu::cpuid_handler, this});
-		//add_handler(intel_x64::vmcs::exit_reason::basic_exit_reason::vmcall, {&vmi_vcpu::vmcall_handler_bare, this});
 		add_vmcall_handler({&vmi_vcpu::vmcall_handler, this});
 	}
 };
