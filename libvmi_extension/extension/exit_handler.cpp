@@ -4,6 +4,7 @@
 #include <boxy/domain/domain_factory.h>
 #include <boxy/domain/domain.h>
 #include <bfdebug.h>
+#include <bfhypercall.h>
 
 using namespace boxy::intel_x64;
 
@@ -77,16 +78,19 @@ public:
 
 	bool vmcall_handler(vcpu *vcpu)
 	{
+		if (bfopcode(vcpu->rax()) != __enum_vmi_op)
+			return false;
 		bfalert_nhex(0, "vmcall", vcpu->rax());
-		return vcpu->advance();
+		set_rax(1);
+		return true;
 	}
 	
 	vmi_vcpu(vcpuid::type id, gsl::not_null<domain *> domain) : boxy::intel_x64::vcpu{id, domain}
 	{
 		bfdebug_info(0, "extension loaded");
 		add_handler(intel_x64::vmcs::exit_reason::basic_exit_reason::cpuid, {&vmi_vcpu::cpuid_handler, this});
-		add_handler(intel_x64::vmcs::exit_reason::basic_exit_reason::vmcall, {&vmi_vcpu::vmcall_handler_bare, this});
-		//add_vmcall_handler({&vmi_vcpu::vmcall_handler, this});
+		//add_handler(intel_x64::vmcs::exit_reason::basic_exit_reason::vmcall, {&vmi_vcpu::vmcall_handler_bare, this});
+		add_vmcall_handler({&vmi_vcpu::vmcall_handler, this});
 	}
 };
 
