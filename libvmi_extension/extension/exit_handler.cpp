@@ -17,7 +17,7 @@ typedef enum hstatus {
 } hstatus_t;
 
 bfn::once_flag flag{};
-bfvmm::intel_x64::ept::mmap g_guest_map;
+//bfvmm::intel_x64::ept::mmap g_guest_map;
 
 #define DOM02DOM0		1
 #define DOM02DOMU		2
@@ -62,6 +62,11 @@ public:
 		guard_exceptions([&] {
 			switch (vcpu->rax())
 			{
+				case HCALL_ACK:
+					bfdebug_info(0, "HCALL_ACK");
+					create_ept();
+					served = true;
+					break;
 				case HCALL_SET_MODE:
 					bfdebug_info(0, "HCALL_SET_MODE in");
 					served = true;
@@ -116,21 +121,22 @@ public:
 	{
 		try
 		{
+			bfalert_nhex(0, "domain id", vcpu->domid());
 			uint64_t addr = vcpu->rdi();
 			uint64_t gpa2 = vcpu->rsi();
 
 			auto hpa = vcpu->gva_to_gpa(addr);
 			auto gpa1 = hpa.first;
 
-			if(g_guest_map.is_2m(gpa1))
+			if(get_domain(vcpu->domid())->ept().is_2m(gpa1))
 			{
 				auto gpa1_2m = bfn::upper(gpa1, ::intel_x64::ept::pd::from);
-				bfvmm::intel_x64::ept::identity_map_convert_2m_to_4k(g_guest_map, gpa1_2m);
+				bfvmm::intel_x64::ept::identity_map_convert_2m_to_4k(get_domain(vcpu->domid())->ept(), gpa1_2m);
 			}
 			auto gpa1_4k = bfn::upper(gpa1, ::intel_x64::ept::pt::from);
 			auto gpa2_4k = bfn::upper(gpa2, ::intel_x64::ept::pt::from);
 			vcpu->set_rsi(gpa2_4k);
-			auto pte = g_guest_map.entry(gpa1_4k);
+			auto pte = get_domain(vcpu->domid())->ept().entry(gpa1_4k);
 			::intel_x64::ept::pt::entry::phys_addr::set(pte.first, gpa2_4k);
 
 			// flush EPT tlb, guest TLB doesn't need to be flushed
@@ -194,16 +200,24 @@ public:
 		})
 	}
 
+	void create_ept()
+	{
+		//bfvmm::intel_x64::ept::identity_map(g_guest_map, MAX_PHYS_ADDR);
+		//::intel_x64::vmx::invept_global();
+	}
+
+	~vmi_vcpu() = default;
 	vmi_vcpu(vcpuid::type id, gsl::not_null<domain *> domain) : boxy::intel_x64::vcpu{id, domain}
 	{
 		bfdebug_info(0, "extension loaded");
-
+		//bfalert_nhex(0, "domain id", domain->id());
+		/*
 		bfn::call_once(flag, [&] {
-				bfvmm::intel_x64::ept::identity_map(g_guest_map, MAX_PHYS_ADDR);
+			create_ept();
 		});
 
-		set_eptp(g_guest_map);
-
+		set_eptp(g_guest_map);*/
+	
 		add_handler(intel_x64::vmcs::exit_reason::basic_exit_reason::cpuid, {&vmi_vcpu::cpuid_handler, this});
 		add_vmcall_handler({&vmi_vcpu::vmcall_handler, this});
 	}
