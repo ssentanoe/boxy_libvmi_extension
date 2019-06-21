@@ -18,12 +18,7 @@ typedef enum hstatus {
 
 bfn::once_flag flag{};
 bfvmm::intel_x64::ept::mmap g_guest_map;
-bfvmm::intel_x64::ept::mmap g_guest_map2;
-uint64_t dom0cr3[4];
-#define DOM02DOM0		1
-#define DOM02DOMU		2
-#define DOMU2DOM0		3
-#define DOMU2DOMU		4
+uint64_t dom0cr3[32];
 
 #define HCALL_INVALID		0xbf05000000000000
 #define HCALL_ACK		0xbf05000000000001
@@ -31,7 +26,7 @@ uint64_t dom0cr3[4];
 #define HCALL_SET_REGISTERS	0xbf05000000000003
 #define HCALL_TRANSLATE_V2P	0xbf05000000000004
 #define HCALL_MAP_PA		0xbf05000000000005
-#define HCALL_SET_MODE		0xbf05000000000006
+#define HCALL_PROBE_ADDR	0xbf05000000000006
 
 class vmi_vcpu : public boxy::intel_x64::vcpu
 {
@@ -49,13 +44,7 @@ public:
 			set_rbx(42);
 			set_rcx(42);
 			set_rdx(42);
-			try
-			{
-				//auto tmp = vcpu->gpa_to_hpa(0xffff93a13740);
-				//bfalert_nhex(0, "tmp 0", tmp.first);
-				//auto buffer = vcpu->map_gva_4k<char>(0xffff81200000, 10);
-			}
-			catchall({})
+
 			return vcpu->advance();
 		}
 		return false;
@@ -75,10 +64,6 @@ public:
 					create_ept();
 					served = true;
 					break;
-				case HCALL_SET_MODE:
-					bfdebug_info(0, "HCALL_SET_MODE in");
-					served = true;
-					break;
 				case HCALL_TRANSLATE_V2P:
 					bfdebug_info(0, "HCALL_TRANSLATE_V2P in");
 					served = true;
@@ -93,6 +78,11 @@ public:
 					bfdebug_info(0, "HCALL_MAP_PA in");
 					served = true;
 					hcall_memmap_ept(vcpu);
+					break;
+				case HCALL_PROBE_ADDR:
+					served = true;
+					bfdebug_info(0, "HCALL_PROBE_ADDR in");
+					hcall_probe_addr(vcpu);
 					break;
 				default:
 					//bfalert_nhex(0, "vmcall", vcpu->rax());
@@ -109,6 +99,21 @@ public:
 		return served;
 	}
 
+	void hcall_probe_addr(vcpu *vcpu)
+	{
+		if(vcpu->is_dom0())
+		{
+			bfalert_nhex(0, "probe id", vcpu->id());
+			bfalert_nhex(0, "probe cr3", vcpu->cr3());
+			dom0cr3[0] = ::intel_x64::vmcs::guest_cr3::get();
+			dom0cr3[1] = ::intel_x64::vmcs::guest_cr3::get();
+			dom0cr3[2] = ::intel_x64::vmcs::guest_cr3::get();
+			dom0cr3[3] = ::intel_x64::vmcs::guest_cr3::get();
+
+			vcpu->set_rax(HSTATUS_SUCCESS);
+		}
+	}
+
 	void hcall_translate_v2p(vcpu *vcpu)
 	{
 		try
@@ -118,8 +123,8 @@ public:
 			vcpu->set_rdi(pa.first);
 			bfdebug_info(0, "v2p vmcall handled");
 			vcpu->set_rax(HSTATUS_SUCCESS);
-			bfalert_nhex(0, "v2p V", addr);
-			bfalert_nhex(0, "v2p P", pa.first);
+			//bfalert_nhex(0, "v2p V", addr);
+			//bfalert_nhex(0, "v2p P", pa.first);
 		}
 		catchall
 		({
@@ -131,22 +136,46 @@ public:
 	{
 		try
 		{
-			bfalert_nhex(0, "domain id", vcpu->domid());
-			bfalert_nhex(0, "parent vcpud domain id", vcpu->parent_vcpu()->domid());
 			uint64_t addr = vcpu->rdi();
 			uint64_t gpa2 = vcpu->rsi();
+			uint64_t domainid = vcpu->rdx();
 
 			auto hpa = vcpu->gva_to_gpa(addr);
 			auto gpa1 = hpa.first;
 
-			bool a = vcpu->domid() == 0 ? g_guest_map.is_2m(gpa1) : get_domain(vcpu->domid())->ept().is_2m(gpa1);
+			bool a = false;
 
-			//if(get_domain(vcpu->domid())->ept().is_2m(gpa1))
-			//if(g_guest_map.is_2m(gpa1))
+			if(vcpu->is_dom0())
+			{
+				if(domainid == 0) // tries to monitor dom0
+				{
+					a = g_guest_map.is_2m(gpa1);
+				}
+				else // tries to monitor domU
+				{
+					// not yet supported
+					vcpu->set_rax(HSTATUS_FAILURE);
+					return;
+				}
+			}
+			else // domU
+			{
+				if(domainid == 0) // tries to monitor dom0
+				{
+					a = get_domain(vcpu->domid())->ept().is_2m(gpa1)
+				}
+				else // tries to monitor domU
+				{
+					// not yet supported
+					vcpu->set_rax(HSTATUS_FAILURE);
+					return;
+				}
+			}
+
 			if(a)
 			{
 				auto gpa1_2m = bfn::upper(gpa1, ::intel_x64::ept::pd::from);
-				//bfvmm::intel_x64::ept::identity_map_convert_2m_to_4k(get_domain(vcpu->domid())->ept(), gpa1_2m);
+
 				if(vcpu->domid() == 0)
 					bfvmm::intel_x64::ept::identity_map_convert_2m_to_4k(g_guest_map, gpa1_2m);
 				else
@@ -155,9 +184,10 @@ public:
 			auto gpa1_4k = bfn::upper(gpa1, ::intel_x64::ept::pt::from);
 			auto gpa2_4k = bfn::upper(gpa2, ::intel_x64::ept::pt::from);
 			vcpu->set_rsi(gpa2_4k);
-			//auto pte = g_guest_map.entry(gpa1_4k);
-			auto pte = vcpu->domid() == 0 ? g_guest_map.entry(gpa1_4k)  : get_domain(vcpu->domid())->ept().entry(gpa1_4k);
+
+			auto pte = vcpu->domid() == 0 ? g_guest_map.entry(gpa1_4k) : get_domain(vcpu->domid())->ept().entry(gpa1_4k);
 			::intel_x64::ept::pt::entry::phys_addr::set(pte.first, gpa2_4k);
+
 			// flush EPT tlb, guest TLB doesn't need to be flushed
 			// as that translation hasn't changed
 			::intel_x64::vmx::invept_global();
@@ -194,35 +224,21 @@ public:
 			j["RDI"] = vcpu->rdi();
 			j["RIP"] = vcpu->rip();
 			j["RSP"] = vcpu->rsp();
-			//j["CR0"] = ::intel_x64::vmcs::guest_cr0::get();
-			j["CR0"] = vcpu->cr0();
-			//j["CR3"] = ::intel_x64::vmcs::guest_cr3::get();
+			j["CR0"] = ::intel_x64::vmcs::guest_cr0::get();
 			if(vcpu->is_domU())
 			{
-				//j["CR3"] = vcpu->parent_vcpu()->cr3();
-				//j["CR3"] = dom0cr3;
-				
-				//error too - garbage
-				//j["CR3"] = ::intel_x64::vmcs::host_cr3::get();
-				
-				//somehow ok
 				j["CR3"] = dom0cr3[vcpu->parent_vcpu()->id()];
-				
-				//this error - garbage
-				//j["CR3"] = ::intel_x64::cr3::get();
-		
-				//j["CR3"] = ::intel_x64::vmcs::guest_cr3::get();
-				//j["CR3"] = ::intel_x64::vmcs::guest_cr3::get(); 
-				
+
 				bfalert_nhex(0, "vcpu parent id", vcpu->parent_vcpu()->id());
 				bfalert_nhex(0, "vcpu parent cr3", dom0cr3[vcpu->parent_vcpu()->id()]);
 			}
 			else
+			{
 				j["CR3"] = vcpu->cr3();
-			//j["CR4"] = ::intel_x64::vmcs::guest_cr4::get();
-			j["CR4"] = vcpu->cr4();
-			//j["MSR_EFER"] = ::intel_x64::vmcs::guest_ia32_efer::get();
-			j["MSR_EFER"] = vcpu->ia32_efer();
+			}
+
+			j["CR4"] = ::intel_x64::vmcs::guest_cr4::get();
+			j["MSR_EFER"] = ::intel_x64::vmcs::guest_ia32_efer::get();
 
 			uintptr_t addr = vcpu->rdi();
 			uint64_t size = vcpu->rsi();
@@ -243,12 +259,6 @@ public:
 		})
 	}
 
-	void create_ept2()
-	{
-		bfvmm::intel_x64::ept::identity_map(g_guest_map2, MAX_PHYS_ADDR);
-		::intel_x64::vmx::invept_global();
-	}
-
 	void create_ept()
 	{
 		bfvmm::intel_x64::ept::identity_map(g_guest_map, MAX_PHYS_ADDR);
@@ -259,8 +269,6 @@ public:
 	vmi_vcpu(vcpuid::type id, gsl::not_null<domain *> domain) : boxy::intel_x64::vcpu{id, domain}
 	{
 		bfdebug_info(0, "extension loaded");
-		//bfalert_nhex(0, "domain id", domain->id());
-		bfalert_nhex(0, "vcpu id", id);
 
 		if(domain->id() == 0)
 		{
@@ -269,28 +277,8 @@ public:
 			});
 			set_eptp(g_guest_map);
 			
+			//store the cr3 of host OS
 			dom0cr3[id] = ::intel_x64::vmcs::guest_cr3::get();
-			
-			//out of mem
-			//dom0cr3[id] = ::intel_x64::vmcs::host_cr3::get();
-
-			bfalert_nhex(0, "cr3 1", cr3());
-			bfalert_nhex(0, "cr3 2", ::intel_x64::vmcs::host_cr3::get());
-			bfalert_nhex(0, "cr3 3", ::intel_x64::cr3::get());
-			bfalert_nhex(0, "cr3 4", ::intel_x64::vmcs::guest_cr3::get());
-			bfalert_nhex(0, "cr3 4.5", g_cr3->cr3());
-			bfalert_nhex(0, "cr3 4.6", domain->cr3());
-		}
-		else
-		{
-			bfn::call_once(flag, [&] {
-                                create_ept2();
-                        });
-			//dom0cr3 = ::intel_x64::cr3::get();
-			//set_eptp(g_guest_map2);
-			//auto tmp = gva_to_gpa(0xffffffff81000000);
-			//bfalert_nhex(0, "vcpu parent id", parent_vcpu()->id());
-			bfalert_nhex(0, "cr3 5", ::intel_x64::vmcs::guest_cr3::get());
 		}
 	
 		add_handler(intel_x64::vmcs::exit_reason::basic_exit_reason::cpuid, {&vmi_vcpu::cpuid_handler, this});
@@ -329,8 +317,8 @@ namespace boxy
 std::unique_ptr<domain>
 domain_factory::make(domain::domainid_type domainid, bfobject *obj)
 {
-    bfignored(obj);
-    return std::make_unique<boxy::intel_x64::domain>(domainid);
+	bfignored(obj);
+	return std::make_unique<boxy::intel_x64::domain>(domainid);
 }
 
 }
