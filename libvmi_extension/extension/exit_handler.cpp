@@ -162,7 +162,7 @@ public:
 			{
 				if(domainid == 0) // tries to monitor dom0
 				{
-					a = get_domain(vcpu->domid())->ept().is_2m(gpa1)
+					a = get_domain(vcpu->domid())->ept().is_2m(gpa1);
 				}
 				else // tries to monitor domU
 				{
