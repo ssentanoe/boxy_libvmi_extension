@@ -265,6 +265,26 @@ public:
 		::intel_x64::vmx::invept_global();
 	}
 
+	bool cr3_handler(vcpu_t *vcpu)
+	{
+		// bfdebug_info(0, "called");
+		return false;
+	}
+	
+	bool test_handler(vcpu_t *vcpu)
+	{
+		bfdebug_info(0, "called");
+		return false;
+	}
+	/*bool interrupt_handler(vcpu_t *vcpu, bfvmm::intel_x64::external_interrupt_handler::info_t &info)
+	{
+		queue_external_interrupt(info.vector);
+		if(info.vector == 0xCC)
+		bfalert_nhex(0, "intterupt", info.vector);
+		//bfdebug_info(0, "called");
+		return true;
+	}*/
+
 	~vmi_vcpu() = default;
 	vmi_vcpu(vcpuid::type id, gsl::not_null<domain *> domain) : boxy::intel_x64::vcpu{id, domain}
 	{
@@ -279,9 +299,12 @@ public:
 			
 			//store the cr3 of host OS
 			dom0cr3[id] = ::intel_x64::vmcs::guest_cr3::get();
+			add_wrcr3_handler({&vmi_vcpu::cr3_handler, this});
+			//add_external_interrupt_handler({&vmi_vcpu::interrupt_handler, this});
 		}
 	
 		add_handler(intel_x64::vmcs::exit_reason::basic_exit_reason::cpuid, {&vmi_vcpu::cpuid_handler, this});
+		add_handler(intel_x64::vmcs::exit_reason::basic_exit_reason::exception_or_non_maskable_interrupt, {&vmi_vcpu::test_handler, this});
 		add_vmcall_handler({&vmi_vcpu::vmcall_handler, this});
 	}
 };
